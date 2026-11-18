@@ -14,20 +14,37 @@ internal sealed partial class WindowsDeckNative
     private IReadOnlyList<DeckItem> _plans = [];
     private long _monitorAt, _plansAt;
 
+    private static string CleanMonitorName(Screen s, int width, int height)
+    {
+        string friendly = null;
+        if (width == 1920 && height == 1080) friendly = "LG IPS FULLHD";
+        else if (width == 1680 && height == 1050) friendly = "Samsung S22C200";
+
+        if (!string.IsNullOrEmpty(friendly))
+            return friendly + (s.Primary ? " (Основной)" : "");
+
+        var num = s.DeviceName.Replace(@"\\.\DISPLAY", "").Trim();
+        return $"Монитор {num}" + (s.Primary ? " (Основной)" : "");
+    }
+
     public IReadOnlyList<DeckMonitor> Monitors()
     {
         lock (_hardwareGate)
         {
             if (Environment.TickCount64 - _monitorAt < 30_000 && _monitors.Count > 0) return _monitors;
             _monitorAt = Environment.TickCount64;
-            _monitors = Screen.AllScreens.Select(s =>
-            {
-                var mode = Mode(s.DeviceName);
-                var brightness = Physical(s, h => GetMonitorBrightness(h, out var min, out var current, out var max) && max > min
-                    ? (int?)Math.Round((current - min) * 100d / (max - min)) : null);
-                return new DeckMonitor(s.DeviceName, s.DeviceName + (s.Primary ? " (primary)" : ""), brightness,
-                    (int)mode.Width, (int)mode.Height, (int)mode.Frequency);
-            }).ToArray();
+            _monitors = Screen.AllScreens
+                .Select(s =>
+                {
+                    var mode = Mode(s.DeviceName);
+                    var brightness = Physical(s, h => GetMonitorBrightness(h, out var min, out var current, out var max) && max > min
+                        ? (int?)Math.Round((current - min) * 100d / (max - min)) : null);
+                    var name = CleanMonitorName(s, (int)mode.Width, (int)mode.Height);
+                    return new DeckMonitor(s.DeviceName, name, brightness,
+                        (int)mode.Width, (int)mode.Height, (int)mode.Frequency);
+                })
+                .Where(m => m.Brightness != null)
+                .ToArray();
             return _monitors;
         }
     }
