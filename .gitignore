@@ -50,3 +50,4 @@ tools/ui-tests/test-results/
 
 *.log
 *.txt
+*.apk
