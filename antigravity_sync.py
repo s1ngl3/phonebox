@@ -30,7 +30,6 @@ def uri_to_path(uri):
     if not uri:
         return os.getcwd()
     try:
-        # e.g. ["file:///d%3A/PhoneBox"]
         if uri.startswith('[') and uri.endswith(']'):
             parsed = json.loads(uri)
             if parsed and isinstance(parsed, list):
@@ -58,7 +57,6 @@ def get_transcript_info(conv_id):
         
     try:
         with open(transcript_path, 'r', encoding='utf-8', errors='ignore') as f:
-            # Read last ~30 lines
             lines = f.readlines()[-30:]
             for line in lines:
                 try:
@@ -74,7 +72,14 @@ def get_transcript_info(conv_id):
                     if 'tool_calls' in data and data['tool_calls']:
                         calls = data['tool_calls']
                         if isinstance(calls, list) and len(calls) > 0:
-                            last_tool = calls[-1].get('name')
+                            first_call = calls[-1]
+                            tool_name = first_call.get('name', 'tool')
+                            summary = first_call.get('args', {}).get('toolSummary')
+                            if summary:
+                                summary = summary.strip('"\'')
+                                last_tool = f"{tool_name}: {summary}"
+                            else:
+                                last_tool = tool_name
                     if 'type' in data:
                         last_status = data.get('type')
                 except Exception:
@@ -91,21 +96,16 @@ def sync_once():
     conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True)
     cur = conn.cursor()
     
-    # Check active lock files in presence dir
     active_locks = set()
     if os.path.exists(PRESENCE_DIR):
         for f in os.listdir(PRESENCE_DIR):
             if f.endswith('.lock'):
                 conv_id = f[:-5]
-                # Check if file is currently open / locked
                 lock_path = os.path.join(PRESENCE_DIR, f)
                 try:
-                    # On Windows, try opening for exclusive access
                     handle = open(lock_path, 'r+')
                     handle.close()
-                    # Not locked
                 except (IOError, OSError, PermissionError):
-                    # Locked by Antigravity!
                     active_locks.add(conv_id)
 
     cur.execute("""
@@ -128,7 +128,6 @@ def sync_once():
         conv_id, title, workspace_uris, status, last_modified, step_count = row
         is_running = (conv_id in active_locks) or (status == 'CASCADE_RUN_STATUS_RUNNING')
         
-        # We only output active sessions or sessions modified in the last 15 minutes
         if not is_running and conv_id not in active_locks:
             continue
             
@@ -160,11 +159,17 @@ def sync_once():
             }
         })
         lines = [meta, context, event, token_info]
-        if last_tool:
+        
+        # Display current action / tool name
+        tool_display = last_tool if is_running else "Ожидает ответа"
+        if not tool_display and is_running:
+            tool_display = "Анализ / Генерация"
+            
+        if tool_display:
             lines.append(json.dumps({
                 "type": "response_item",
                 "timestamp": ts,
-                "payload": {"type": "function_call", "name": last_tool}
+                "payload": {"type": "function_call", "name": tool_display}
             }))
             
         with open(session_file, 'w', encoding='utf-8') as sf:
