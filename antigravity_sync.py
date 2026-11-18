@@ -12,6 +12,9 @@ PRESENCE_DIR = os.path.join(ANTIGRAVITY_DIR, 'presence')
 BRAIN_DIR = os.path.join(ANTIGRAVITY_DIR, 'brain')
 CODEX_SESSIONS_DIR = os.path.expanduser('~/.codex/sessions')
 
+# Cache of last recorded state per conversation: {conv_id: (lifecycle, last_tool, total_tokens, last_ts_time)}
+_LAST_STATE = {}
+
 def format_model_name(raw_name):
     if not raw_name:
         return "Gemini"
@@ -51,9 +54,10 @@ def get_transcript_info(conv_id):
     output_tokens = 0
     last_tool = None
     last_status = None
+    last_created_at = None
     
     if not os.path.exists(transcript_path):
-        return model, total_tokens, input_tokens, output_tokens, last_tool, last_status
+        return model, total_tokens, input_tokens, output_tokens, last_tool, last_status, last_created_at
         
     try:
         with open(transcript_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -61,6 +65,8 @@ def get_transcript_info(conv_id):
             for line in lines:
                 try:
                     data = json.loads(line)
+                    if 'created_at' in data:
+                        last_created_at = data['created_at']
                     if 'model' in data:
                         model = format_model_name(data['model'])
                     if 'input_tokens' in data or 'output_tokens' in data:
@@ -87,15 +93,25 @@ def get_transcript_info(conv_id):
     except Exception:
         pass
         
-    return model, total_tokens, input_tokens, output_tokens, last_tool, last_status
+    return model, total_tokens, input_tokens, output_tokens, last_tool, last_status, last_created_at
 
 def sync_once():
     if not os.path.exists(DB_PATH):
-        return
+        return False
         
-    conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True)
-    cur = conn.cursor()
-    
+    try:
+        conn = sqlite3.connect(f'file:{DB_PATH}?mode=ro', uri=True)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT conversation_id, title, workspace_uris, status, last_modified_time, step_count 
+            FROM conversation_summaries 
+            ORDER BY last_modified_time DESC LIMIT 5
+        """)
+        rows = cur.fetchall()
+        conn.close()
+    except Exception:
+        return False
+
     active_locks = set()
     if os.path.exists(PRESENCE_DIR):
         for f in os.listdir(PRESENCE_DIR):
@@ -108,14 +124,6 @@ def sync_once():
                 except (IOError, OSError, PermissionError):
                     active_locks.add(conv_id)
 
-    cur.execute("""
-        SELECT conversation_id, title, workspace_uris, status, last_modified_time, step_count 
-        FROM conversation_summaries 
-        ORDER BY last_modified_time DESC LIMIT 10
-    """)
-    rows = cur.fetchall()
-    conn.close()
-
     now_utc = datetime.now(timezone.utc)
     today_folder = now_utc.strftime('%Y/%m/%d')
     date_str = now_utc.strftime('%Y-%m-%d')
@@ -124,57 +132,82 @@ def sync_once():
 
     found_active = False
 
-    for row in rows:
+    for idx, row in enumerate(rows):
         conv_id, title, workspace_uris, status, last_modified, step_count = row
         is_running = (conv_id in active_locks) or (status == 'CASCADE_RUN_STATUS_RUNNING')
         
-        if not is_running and conv_id not in active_locks:
+        # Only process active conversations or the single most recent one
+        if not is_running and idx > 0:
             continue
             
-        found_active = True
+        found_active = found_active or is_running
         cwd = uri_to_path(workspace_uris)
-        model, total_tokens, input_tokens, output_tokens, last_tool, last_type = get_transcript_info(conv_id)
+        model, total_tokens, input_tokens, output_tokens, last_tool, last_type, last_created_at = get_transcript_info(conv_id)
         
         session_file = os.path.join(target_dir, f'rollout-{date_str}-{conv_id[:8]}-antigravity.jsonl')
-        ts = now_utc.isoformat()
-        
         lifecycle = "task_started" if is_running else "task_complete"
-        
-        meta = json.dumps({"type": "session_meta", "timestamp": ts, "payload": {"cwd": cwd}})
-        context = json.dumps({"type": "turn_context", "timestamp": ts, "payload": {"model": model, "effort": "high"}})
-        event = json.dumps({"type": "event_msg", "timestamp": ts, "payload": {"type": lifecycle}})
-        token_info = json.dumps({
-            "type": "event_msg",
-            "timestamp": ts,
-            "payload": {
-                "type": "token_count",
-                "info": {
-                    "total_token_usage": {
-                        "total_tokens": total_tokens or 15000,
-                        "input_tokens": input_tokens or 12000,
-                        "output_tokens": output_tokens or 3000
-                    },
-                    "model_context_window": 1000000
-                }
-            }
-        })
-        lines = [meta, context, event, token_info]
-        
-        # Display current action / tool name
         tool_display = last_tool if is_running else "Ожидает ответа"
         if not tool_display and is_running:
             tool_display = "Анализ / Генерация"
+
+        now_sec = time.time()
+        prev_state = _LAST_STATE.get(conv_id)
+        
+        # Determine if we should append an update
+        needs_write = False
+        if not os.path.exists(session_file):
+            needs_write = True
+        elif prev_state is None:
+            needs_write = True
+        else:
+            prev_lifecycle, prev_tool, prev_tokens, prev_time = prev_state
+            state_changed = (prev_lifecycle != lifecycle) or (prev_tool != tool_display) or (prev_tokens != total_tokens)
+            heartbeat_needed = is_running and (now_sec - prev_time >= 25)
+            if state_changed or heartbeat_needed:
+                needs_write = True
+
+        if needs_write:
+            ts = now_utc.isoformat()
+            new_lines = []
             
-        if tool_display:
-            lines.append(json.dumps({
-                "type": "response_item",
+            # If the file doesn't exist yet, write header metadata first
+            if not os.path.exists(session_file):
+                new_lines.append(json.dumps({"type": "session_meta", "timestamp": ts, "payload": {"cwd": cwd}}))
+                new_lines.append(json.dumps({"type": "turn_context", "timestamp": ts, "payload": {"model": model, "effort": "high"}}))
+
+            # Event lifecycle (task_started or task_complete)
+            new_lines.append(json.dumps({"type": "event_msg", "timestamp": ts, "payload": {"type": lifecycle}}))
+            
+            # Token usage info
+            new_lines.append(json.dumps({
+                "type": "event_msg",
                 "timestamp": ts,
-                "payload": {"type": "function_call", "name": tool_display}
+                "payload": {
+                    "type": "token_count",
+                    "info": {
+                        "total_token_usage": {
+                            "total_tokens": total_tokens or 15000,
+                            "input_tokens": input_tokens or 12000,
+                            "output_tokens": output_tokens or 3000
+                        },
+                        "model_context_window": 1000000
+                    }
+                }
             }))
             
-        with open(session_file, 'w', encoding='utf-8') as sf:
-            sf.write('\n'.join(lines) + '\n')
-            
+            # Tool / action display
+            if tool_display:
+                new_lines.append(json.dumps({
+                    "type": "response_item",
+                    "timestamp": ts,
+                    "payload": {"type": "function_call", "name": tool_display}
+                }))
+
+            with open(session_file, 'a', encoding='utf-8') as sf:
+                sf.write('\n'.join(new_lines) + '\n')
+                
+            _LAST_STATE[conv_id] = (lifecycle, tool_display, total_tokens, now_sec)
+
     return found_active
 
 if __name__ == '__main__':
@@ -182,7 +215,7 @@ if __name__ == '__main__':
         while True:
             try:
                 sync_once()
-            except Exception as e:
+            except Exception:
                 pass
             time.sleep(2)
     else:
