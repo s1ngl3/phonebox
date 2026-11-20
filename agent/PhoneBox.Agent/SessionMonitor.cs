@@ -18,7 +18,7 @@ public sealed record AgentSession(string Id, string Tool, string Name, string Pr
 ///  - Claude Code: ~/.claude/sessions/{pid}.json (status files written by Claude Code itself)
 ///  - Codex: the latest events in recent rollout files under ~/.codex/sessions
 /// </summary>
-public sealed class SessionMonitor(ILogger<SessionMonitor> log) : BackgroundService
+public sealed partial class SessionMonitor(ILogger<SessionMonitor> log) : BackgroundService
 {
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     private readonly ConcurrentDictionary<string, string> _codexCwd = new();
@@ -37,6 +37,7 @@ public sealed class SessionMonitor(ILogger<SessionMonitor> log) : BackgroundServ
             var list = new List<AgentSession>();
             try { list.AddRange(ReadClaude()); } catch (Exception ex) { log.LogDebug("claude sessions: {Msg}", ex.Message); }
             try { list.AddRange(ReadCodex()); } catch (Exception ex) { log.LogDebug("codex sessions: {Msg}", ex.Message); }
+            try { list.AddRange(ReadAntigravity()); } catch (Exception ex) { log.LogDebug("antigravity sessions: {Msg}", ex.Message); }
             _sessions = list;
             await Task.Delay(2000, ct);
         }
