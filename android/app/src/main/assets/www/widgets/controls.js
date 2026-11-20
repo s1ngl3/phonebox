@@ -77,7 +77,7 @@ function audioView(box, options, mode) {
     if (options.application) items = items.filter(d => d.name.toLowerCase().includes(options.application.toLowerCase()));
     if (mode === 'mic' && !options.device) items = items.filter(d => d.default);
     if (mode === 'balance') items = items.filter(d => d.direction === 'output' && d.channels >= 2 && (options.device || d.default));
-    if (!items.length) { empty(root, mode === 'app' ? 'Start the selected application and play audio' : 'No matching audio devices'); return; }
+    if (!items.length) { empty(root, mode === 'apps' ? 'No applications playing audio' : (mode === 'app' ? 'Start the selected application and play audio' : 'No matching audio devices')); return; }
     const nodes = items.map(item => {
       let row = rows.get(item.id);
       if (!row) {

@@ -42,6 +42,7 @@
     { "template": "procs" },
     { "template": "deck" },
     { "template": "music" },
+    { "template": "audio-deck" },
     { "template": "focus", "enabled": false },
     { "template": "world", "enabled": false }
   ],
