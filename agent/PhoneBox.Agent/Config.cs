@@ -131,7 +131,7 @@ public sealed class DisplayConfig
     /// <summary>Return to the first page after this many idle seconds; 0 = never.</summary>
     public int IdleReturnSec { get; set; } = 90;
     /// <summary>Vibrate when a session finishes or needs input.</summary>
-    public bool Vibrate { get; set; } = true;
+    public bool Vibrate { get; set; } = false;
     /// <summary>The phone's volume keys switch pages.</summary>
     public bool VolumeKeys { get; set; } = true;
     /// <summary>landscape, portrait or auto (follow the phone). In portrait the widgets are arranged automatically.</summary>

@@ -896,7 +896,6 @@ export function renderApproval() {
     lastTouch = Date.now();
     undim();
     if (nightOn) { wakeUntil = Date.now() + 60_000; setNight(false); }
-    buzz('0,120,80,120,80,240');
     // A prompt whose answer is still in flight comes back locked: it can be shown again while its own post runs.
     $('apAllow').disabled = $('apDeny').disabled = $('apSkip').disabled = submitting.has(a.id);
   }
