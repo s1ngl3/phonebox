@@ -53,10 +53,31 @@ public static class AntigravityHook
 
         var decision = await approvals.AskAsync(a, aborted);
         if (decision == "allow")
-            return new { decision = "allow" };
+        {
+            var overrides = PermissionOverrides(tool, args);
+            return overrides is { Length: > 0 }
+                ? (object)new { decision = "allow", permissionOverrides = overrides }
+                : new { decision = "allow" };
+        }
         if (decision == "deny")
             return new { decision = "deny", reason = "Denied from PhoneBox panel." };
         return Ask();
+    }
+
+    internal static string[]? PermissionOverrides(string tool, JsonElement args)
+    {
+        if (args.ValueKind != JsonValueKind.Object) return null;
+        if (tool is "run_command" or "Bash")
+        {
+            var cmd = Str(args, "CommandLine") ?? Str(args, "command");
+            if (!string.IsNullOrWhiteSpace(cmd)) return [$"command({cmd})"];
+        }
+        else if (tool is "write_file" or "Write" or "edit_file" or "Edit")
+        {
+            var p = Str(args, "Path") ?? Str(args, "file_path");
+            if (!string.IsNullOrWhiteSpace(p)) return [$"write({p})", $"edit({p})"];
+        }
+        return null;
     }
 
     private static object Ask() => new { decision = "ask" };

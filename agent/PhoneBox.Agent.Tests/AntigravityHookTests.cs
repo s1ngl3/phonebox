@@ -198,6 +198,7 @@ public sealed class AntigravityHookTests
             var result = await handleTask;
             var json = JsonSerializer.Serialize(result);
             Assert.Contains("\"decision\":\"allow\"", json);
+            Assert.Contains("\"permissionOverrides\":[\"command(dotnet test)\"]", json);
         }
         finally
         {
