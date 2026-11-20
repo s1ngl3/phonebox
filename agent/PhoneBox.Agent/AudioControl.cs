@@ -3,36 +3,58 @@ using System.Runtime.InteropServices;
 namespace PhoneBox.Agent;
 
 /// <summary>Master volume of the default playback device (Windows Core Audio).</summary>
-public sealed class AudioControl
+public class AudioControl
 {
     private static Guid _ctx = Guid.Empty;
     private readonly Lock _lock = new();
     private IAudioEndpointVolume? _ep;
+    private IAudioEndpointVolume? _micEp;
     private long _acquiredAt;
+    private long _micAcquiredAt;
 
     /// <summary>Core Audio reads are in-process and fast, so a control action can use the same reading.</summary>
-    public AudioSnapshot? Current() => Snapshot();
+    public virtual AudioSnapshot? Current() => Snapshot();
 
-    public AudioSnapshot? Snapshot() => Use(ep =>
+    public virtual AudioSnapshot? Snapshot() => Use(ep =>
     {
         ep.GetMasterVolumeLevelScalar(out var v);
         ep.GetMute(out var m);
         return new AudioSnapshot((int)Math.Round(v * 100), m);
     });
 
-    public bool SetVolume(int level) => Use(ep =>
+    public virtual AudioSnapshot? MicSnapshot() => UseMic(ep =>
+    {
+        ep.GetMasterVolumeLevelScalar(out var v);
+        ep.GetMute(out var m);
+        return new AudioSnapshot((int)Math.Round(v * 100), m);
+    });
+
+    public virtual bool SetVolume(int level) => Use(ep =>
     {
         ep.SetMasterVolumeLevelScalar(Math.Clamp(level, 0, 100) / 100f, ref _ctx);
         if (level > 0) ep.SetMute(false, ref _ctx);
         return true;
     });
 
-    public bool Step(int delta) => Snapshot() is { } s && SetVolume(s.Volume + delta);
+    public virtual bool Step(int delta) => Snapshot() is { } s && SetVolume(s.Volume + delta);
 
-    public bool ToggleMute() => Use(ep =>
+    public virtual bool ToggleMute() => Use(ep =>
     {
         ep.GetMute(out var m);
         ep.SetMute(!m, ref _ctx);
+        return true;
+    });
+
+    public virtual bool ToggleMicMute() => UseMic(ep =>
+    {
+        ep.GetMute(out var m);
+        ep.SetMute(!m, ref _ctx);
+        return true;
+    });
+
+    public virtual bool SetMicMute(bool mute) => UseMic(ep =>
+    {
+        ep.SetMute(mute, ref _ctx);
         return true;
     });
 
@@ -54,6 +76,23 @@ public sealed class AudioControl
         }
     }
 
+    private T? UseMic<T>(Func<IAudioEndpointVolume, T> f)
+    {
+        lock (_lock)
+        {
+            try
+            {
+                if (_micEp is null || Environment.TickCount64 - _micAcquiredAt > 10_000) AcquireMic();
+                return f(_micEp!);
+            }
+            catch
+            {
+                _micEp = null;
+                return default;
+            }
+        }
+    }
+
     private void Acquire()
     {
         var en = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom();
@@ -62,6 +101,16 @@ public sealed class AudioControl
         Marshal.ThrowExceptionForHR(dev.Activate(ref iid, 23 /*CLSCTX_ALL*/, IntPtr.Zero, out var obj));
         _ep = (IAudioEndpointVolume)obj;
         _acquiredAt = Environment.TickCount64;
+    }
+
+    private void AcquireMic()
+    {
+        var en = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom();
+        Marshal.ThrowExceptionForHR(en.GetDefaultAudioEndpoint(1 /*eCapture*/, 1 /*eMultimedia*/, out var dev));
+        var iid = typeof(IAudioEndpointVolume).GUID;
+        Marshal.ThrowExceptionForHR(dev.Activate(ref iid, 23 /*CLSCTX_ALL*/, IntPtr.Zero, out var obj));
+        _micEp = (IAudioEndpointVolume)obj;
+        _micAcquiredAt = Environment.TickCount64;
     }
 
     [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]

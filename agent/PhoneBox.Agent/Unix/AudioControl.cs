@@ -7,7 +7,7 @@ namespace PhoneBox.Agent;
 /// Master volume on Linux (PipeWire's wpctl, or PulseAudio's pactl) and the selected macOS output.
 /// macOS falls back to CoreAudio channels and, for a matching display, optional DDC/CI readback.
 /// </summary>
-public sealed partial class AudioControl
+public partial class AudioControl
 {
     private const int MaxAgeMs = 900;
     private readonly Lock _lock = new();
@@ -116,6 +116,10 @@ public sealed partial class AudioControl
         var muted = (Sh.Run("pactl", "get-sink-mute", "@DEFAULT_SINK@") ?? "").Contains("yes");
         return new AudioSnapshot(int.Parse(vol2.Groups[1].Value), muted);
     }
+
+    public virtual AudioSnapshot? MicSnapshot() => null;
+    public virtual bool ToggleMicMute() => false;
+    public virtual bool SetMicMute(bool mute) => false;
 
     [GeneratedRegex(@"Volume:\s*([\d.]+)(\s*\[MUTED\])?")] private static partial Regex WpctlRe();
     [GeneratedRegex(@"(\d+)%")] private static partial Regex PercentRe();

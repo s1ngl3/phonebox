@@ -16,11 +16,11 @@ public static class Shortcuts
     {
         var sc = cfg.Shortcuts.FirstOrDefault(s => s.Id == id);
         if (sc is null) return $"no such shortcut: {id}";
-        if (!sc.Toggle) return Execute(sc, log, cfg);
+        if (!sc.Toggle && sc.Cmd != "builtin:mute" && sc.Cmd != "builtin:mic-mute") return Execute(sc, log, cfg, audio: audio);
         var on = State(sc, push, audio) ?? false;
         var target = on && sc.OffCmd is not null ? new Shortcut { Label = sc.Label, Cmd = sc.OffCmd, Args = sc.OffArgs, Cwd = sc.Cwd } : sc;
-        var err = Execute(target, log, cfg);
-        if (err is null && sc.StateKey is null && sc.Cmd != "builtin:mute") Remembered[sc.Id] = !on;
+        var err = Execute(target, log, cfg, audio: audio);
+        if (err is null && sc.StateKey is null && sc.Cmd != "builtin:mute" && sc.Cmd != "builtin:mic-mute") Remembered[sc.Id] = !on;
         return err;
     }
 
@@ -28,7 +28,7 @@ public static class Shortcuts
     public static Dictionary<string, bool>? States(AgentConfig cfg, PushStore push, AudioControl audio)
     {
         Dictionary<string, bool>? map = null;
-        foreach (var sc in cfg.Shortcuts.Where(s => s.Toggle || s.Cmd == "builtin:mute"))
+        foreach (var sc in cfg.Shortcuts.Where(s => s.Toggle || s.Cmd == "builtin:mute" || s.Cmd == "builtin:mic-mute"))
             if (State(sc, push, audio) is { } on) (map ??= [])[sc.Id] = on;
         return map;
     }
@@ -36,6 +36,7 @@ public static class Shortcuts
     public static bool? State(Shortcut sc, PushStore? push, AudioControl? audio)
     {
         if (sc.Cmd == "builtin:mute" && sc.StateKey is null) return audio?.Snapshot()?.Muted;
+        if (sc.Cmd == "builtin:mic-mute" && sc.StateKey is null) return audio?.MicSnapshot()?.Muted;
         if (sc.StateKey is not null)
         {
             if (push?.Snapshot().TryGetValue(sc.StateKey, out var item) != true) return false;
@@ -53,7 +54,7 @@ public static class Shortcuts
     }
 
     /// <returns>An error message, or null on success.</returns>
-    public static string? Execute(Shortcut sc, ILogger log, AgentConfig? cfg = null, int depth = 0)
+    public static string? Execute(Shortcut sc, ILogger log, AgentConfig? cfg = null, int depth = 0, AudioControl? audio = null)
     {
         try
         {
@@ -78,7 +79,7 @@ public static class Shortcuts
                             case "wait": Thread.Sleep(Math.Clamp(int.TryParse(value, out var ms) ? ms : 0, 0, 10_000)); break;
                             case "shortcut":
                                 var other = cfg?.Shortcuts.FirstOrDefault(s => s.Id == value) ?? throw new InvalidOperationException($"no such shortcut: {value}");
-                                if (Execute(other, log, cfg, depth + 1) is { } err) throw new InvalidOperationException(err);
+                                if (Execute(other, log, cfg, depth + 1, audio) is { } err) throw new InvalidOperationException(err);
                                 break;
                             default: throw new InvalidOperationException($"unknown macro step \"{step}\" (use keys:, text:, wait: or shortcut:)");
                         }
@@ -96,6 +97,9 @@ public static class Shortcuts
                 case "builtin:mute":
                     Keys.Tap(Keys.VK_VOLUME_MUTE);
                     break;
+                case "builtin:mic-mute":
+                    (audio ?? new AudioControl()).ToggleMicMute();
+                    break;
 #else
                 case "builtin:lock":
                     if (OperatingSystem.IsMacOS()) Unix("pmset", "displaysleepnow");
@@ -107,6 +111,9 @@ public static class Shortcuts
                     break;
                 case "builtin:mute":
                     new AudioControl().ToggleMute();
+                    break;
+                case "builtin:mic-mute":
+                    (audio ?? new AudioControl()).ToggleMicMute();
                     break;
 #endif
                 default:

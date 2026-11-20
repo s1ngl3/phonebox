@@ -761,6 +761,7 @@ const PRESETS_LINUX = [
   ['gnome-control-center', 'GNOME Settings'],
   ['gnome-system-monitor', 'System Monitor'],
   ['builtin:mute', 'Built-in: toggle mute'],
+  ['builtin:mic-mute', 'Built-in: toggle microphone mute'],
   ['builtin:monitor-off', 'Built-in: turn monitors off (X11)'],
   ['builtin:lock', 'Built-in: lock the session'],
 ];
@@ -771,6 +772,7 @@ const PRESETS_MACOS = [
   ['shortcuts', 'Run a Shortcut (args: run "Name")'],
   ['osascript', 'AppleScript (args: -e "…")'],
   ['builtin:mute', 'Built-in: toggle mute'],
+  ['builtin:mic-mute', 'Built-in: toggle microphone mute'],
   ['builtin:monitor-off', 'Built-in: sleep the display'],
   ['builtin:lock', 'Built-in: lock (sleeps the display)'],
 ];
@@ -785,6 +787,7 @@ const PRESETS = [
   ['ms-screenclip:', 'Screen snip'],
   ['taskmgr.exe', 'Task Manager'],
   ['builtin:mute', 'Built-in: toggle mute'],
+  ['builtin:mic-mute', 'Built-in: toggle microphone mute'],
   ['builtin:monitor-off', 'Built-in: turn monitors off'],
   ['builtin:lock', 'Built-in: lock the PC'],
 ];
@@ -2202,10 +2205,10 @@ function actionFields(s, upd, text, cmdIn, preset) {
   if (osName === 'macos' && kind !== 'run') fields.push(h('p', { class: 'hint' }, 'macOS asks once to allow PhoneBoxAgent in System Settings › Privacy & Security › Accessibility.'));
   if (osName === 'linux' && kind !== 'run') fields.push(h('p', { class: 'hint' }, 'Needs xdotool (X11) or wtype (Wayland).'));
 
-  const isMute = s.cmd === 'builtin:mute';
+  const isMute = s.cmd === 'builtin:mute' || s.cmd === 'builtin:mic-mute';
   fields.push(h('label', { class: 'check', style: { marginTop: '4px' } },
     h('input', { type: 'checkbox', checked: !!s.toggle || isMute, disabled: isMute, onchange: (e) => { s.toggle = e.target.checked; changed(); renderEditor(); } }),
-    isMute ? 'On / off key (shows whether the sound is muted)' : 'On / off key: the phone shows its state'));
+    isMute ? (s.cmd === 'builtin:mic-mute' ? 'On / off key (shows whether the microphone is muted)' : 'On / off key (shows whether the sound is muted)') : 'On / off key: the phone shows its state'));
   if (s.toggle && !isMute) {
     fields.push(text('stateKey', 'State from a pushed value (optional)', 'e.g. teams-muted',
       'A value pushed to /api/push/<key> (true / on / 1 = on). Without it the phone shows the state after each tap.'));

@@ -47,7 +47,7 @@
   ],
 
   // Shortcut keys. The phone only sends the "id"; commands live in this file only.
-  // cmd: a program, a URL / shell: / ms-settings: address, or builtin:lock | builtin:monitor-off | builtin:mute
+  // cmd: a program, a URL / shell: / ms-settings: address, or builtin:lock | builtin:monitor-off | builtin:mute | builtin:mic-mute
   "shortcuts": [
     { "id": "terminal",   "label": "Terminal",     "icon": "\u2328\ufe0f", "color": "#4b5563", "cmd": "wt.exe" },
     { "id": "explorer",   "label": "Files",        "icon": "\ud83d\udcc1", "color": "#e5b84b", "cmd": "explorer.exe" },
