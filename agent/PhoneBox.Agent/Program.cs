@@ -681,6 +681,19 @@ app.MapGet("/api/claude/hook", () => Results.Json(new { installed = ClaudeHook.I
 app.MapPost("/api/claude/hook", (ConfigStore cfg) => ClaudeHook.Configure(true, Port, cfg.Get().Claude.TimeoutSec) is { } err ? Results.BadRequest(new { error = err }) : Results.Ok());
 app.MapDelete("/api/claude/hook", (ConfigStore cfg) => ClaudeHook.Configure(false, Port, cfg.Get().Claude.TimeoutSec) is { } err ? Results.BadRequest(new { error = err }) : Results.Ok());
 
+// Antigravity PreToolUse hook (local only): waits for Allow / Deny from the phone, asks in terminal otherwise.
+app.MapPost(AntigravityHook.Endpoint, async (HttpRequest req, ConfigStore cfg, ApprovalStore approvals, SessionMonitor sessions) =>
+{
+    JsonElement input;
+    try { input = (await JsonDocument.ParseAsync(req.Body)).RootElement.Clone(); }
+    catch (JsonException) { return Results.Json(new { decision = "ask" }); }
+    var output = await AntigravityHook.HandleAsync(input, cfg, approvals, sessions, req.HttpContext.RequestAborted);
+    return Results.Json(output);
+});
+app.MapGet("/api/antigravity/hook", () => Results.Json(new { installed = AntigravityHook.Installed(), path = AntigravityHook.HooksPath }));
+app.MapPost("/api/antigravity/hook", (ConfigStore cfg) => AntigravityHook.Configure(true, Port, cfg.Get().Antigravity.TimeoutSec, cfg.Get().Antigravity.Matcher) is { } err ? Results.BadRequest(new { error = err }) : Results.Ok());
+app.MapDelete("/api/antigravity/hook", (ConfigStore cfg) => AntigravityHook.Configure(false, Port, cfg.Get().Antigravity.TimeoutSec) is { } err ? Results.BadRequest(new { error = err }) : Results.Ok());
+
 // Permission prompts waiting for the phone (posted by the Claude Code hook, see ClaudeHook.cs).
 app.MapGet("/api/approvals", (ApprovalStore a) => Results.Json(new { items = a.Snapshot() }));
 app.MapPost("/api/approvals/{id}", (string id, string decision, ApprovalStore a) => a.Decide(id, decision) ? Results.Ok() : Results.NotFound());

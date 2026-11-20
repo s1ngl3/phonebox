@@ -19,6 +19,7 @@ public sealed class AgentConfig
     public LanConfig Lan { get; set; } = new();
     public UpdateConfig Updates { get; set; } = new();
     public ClaudeConfig Claude { get; set; } = new();
+    public AntigravityConfig Antigravity { get; set; } = new();
     public List<PageConfig> Pages { get; set; } = [];
     public List<Shortcut> Shortcuts { get; set; } = [];
     public List<RuleConfig> Rules { get; set; } = [];
@@ -200,6 +201,18 @@ public sealed class ClaudeConfig
     public int TimeoutSec { get; set; } = 90;
     /// <summary>Only use the phone when the PC has been idle for a minute (you are away from the keyboard).</summary>
     public bool OnlyWhenAway { get; set; }
+}
+
+public sealed class AntigravityConfig
+{
+    /// <summary>Show Antigravity tool permission prompts on the phone (needs the hook, see Settings › General).</summary>
+    public bool PhoneApprovals { get; set; } = true;
+    /// <summary>How long the phone may take before Antigravity asks in the terminal instead.</summary>
+    public int TimeoutSec { get; set; } = 90;
+    /// <summary>Only use the phone when the PC has been idle for a minute (you are away from the keyboard).</summary>
+    public bool OnlyWhenAway { get; set; }
+    /// <summary>Tools to match in hooks.json (default: run_command).</summary>
+    public string Matcher { get; set; } = "run_command";
 }
 
 public sealed class PageConfig
@@ -522,6 +535,9 @@ public sealed partial class ConfigStore(string path)
         if (c.Ping.Host.Length > 253 || c.Ping.Host.Any(ch => ch <= ' ' || ch > '~')) c.Ping.Host = PingMonitor.DefaultHost;
         c.Claude ??= new();
         c.Claude.TimeoutSec = Math.Clamp(c.Claude.TimeoutSec, 10, 3600);
+        c.Antigravity ??= new();
+        c.Antigravity.TimeoutSec = Math.Clamp(c.Antigravity.TimeoutSec, 10, 3600);
+        if (string.IsNullOrWhiteSpace(c.Antigravity.Matcher)) c.Antigravity.Matcher = "run_command";
         if (string.IsNullOrWhiteSpace(c.Updates.Repo)) c.Updates.Repo = "ersinkoc/phonebox";
         c.Lan.Port = Math.Clamp(c.Lan.Port, 1024, 65535);
         if (string.IsNullOrWhiteSpace(c.Lan.Token)) c.Lan.Token = NewToken();

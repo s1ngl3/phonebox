@@ -598,6 +598,18 @@ dd { margin: 0; word-break: break-all; }
       </div>
 
       <div class="card">
+        <h3>Antigravity permission prompts</h3>
+        <p class="hint" style="margin:0 0 12px">When Antigravity wants to run a command or tool, the phone shows the request with
+          <b>Allow</b> and <b>Deny</b>. If the phone is not connected or nobody answers in time, Antigravity asks in the terminal as usual.
+          This uses a lifecycle hook in <code>~/.gemini/config/hooks.json</code>; PhoneBox adds it for you (a backup is kept next to the file).</p>
+        <div class="row" style="margin-bottom:12px"><button class="btn" id="antigravityHookBtn">Install hook</button><span class="hint" id="antigravityHookState"></span></div>
+        <div class="row" style="margin-bottom:8px"><label class="switch"><input type="checkbox" data-bind="antigravity.phoneApprovals"><span></span></label> <span>Ask on the phone</span></div>
+        <label class="check"><input type="checkbox" data-bind="antigravity.onlyWhenAway"> Only when I am away from the PC (no keyboard or mouse for a minute)</label>
+        <div class="field" style="max-width:260px;margin-top:12px"><label>Seconds to answer before the terminal takes over</label><input type="number" min="10" max="3600" data-bind="antigravity.timeoutSec" data-type="int"></div>
+        <div class="field" style="max-width:260px;margin-top:12px"><label>Tools to match (regex)</label><input type="text" data-bind="antigravity.matcher" placeholder="run_command"></div>
+      </div>
+
+      <div class="card">
         <h3 data-i18n="s.quotas.title">AI quotas &amp; CodexBar</h3>
         <p class="hint" style="margin:0 0 12px">Choose which AI coding services to track and show on the panel, and configure rotation.</p>
         <div class="field"><label>Tracked AI services</label>
@@ -2739,6 +2751,10 @@ async function loadInfo() {
     $('hookBtn').dataset.i18n = hk.installed ? 's.claude.removeHook' : 's.claude.installHook';
     $('hookBtn').textContent = t($('hookBtn').dataset.i18n);
     $('hookBtn').dataset.installed = hk.installed ? '1' : '';
+    const ahk = await (await fetch('/api/antigravity/hook')).json();
+    $('antigravityHookState').textContent = ahk.installed ? 'Installed in ' + ahk.path : 'Not installed';
+    $('antigravityHookBtn').textContent = ahk.installed ? 'Remove hook' : 'Install hook';
+    $('antigravityHookBtn').dataset.installed = ahk.installed ? '1' : '';
     $('info').replaceChildren(
       h('dt', {}, 'Version'), h('dd', {}, i.version),
       h('dt', {}, 'Settings file'), h('dd', {}, h('code', {}, i.configPath)),
@@ -2751,7 +2767,7 @@ async function loadInfo() {
 // The form reads every section it binds and renders, so a config without one — an older export, or a
 // hand-trimmed paste in Apply JSON — gets the same defaults a fresh load does before anything renders.
 function fillDefaults() {
-  cfg.pages = fitPages(cfg.pages); cfg.shortcuts ??= []; cfg.rules ??= []; cfg.display ??= {}; cfg.night = { enabled: true, start: '00:30', end: '07:30', brightness: 0.02, ...cfg.night }; cfg.weather ??= {}; cfg.photos ??= { folder: '', subfolders: true }; cfg.lan ??= { enabled: false, port: 8766 }; cfg.updates ??= { auto: true, repo: 'ersinkoc/phonebox' }; cfg.claude ??= { phoneApprovals: true, timeoutSec: 90, onlyWhenAway: false };
+  cfg.pages = fitPages(cfg.pages); cfg.shortcuts ??= []; cfg.rules ??= []; cfg.display ??= {}; cfg.night = { enabled: true, start: '00:30', end: '07:30', brightness: 0.02, ...cfg.night }; cfg.weather ??= {}; cfg.photos ??= { folder: '', subfolders: true }; cfg.lan ??= { enabled: false, port: 8766 }; cfg.updates ??= { auto: true, repo: 'ersinkoc/phonebox' }; cfg.claude ??= { phoneApprovals: true, timeoutSec: 90, onlyWhenAway: false }; cfg.antigravity ??= { phoneApprovals: true, timeoutSec: 90, onlyWhenAway: false, matcher: 'run_command' };
   cfg.codexBar ??= { providers: ['claude', 'codex', 'antigravity'], rotate: true, pageSize: 2, rotateInterval: 8 };
   for (const [k, v] of Object.entries({ language: 'auto', hour12: false, idleReturnSec: 90, switchCountdownSec: 3, touchGraceSec: 20, minDwellSec: 15, holdMaxMin: 30, keepAwake: true,
     showSeconds: true, vibrate: true, volumeKeys: true, artTint: true, proximityWake: true, orientation: 'landscape', theme: 'default', accent: '#2dd4bf' })) cfg.display[k] ??= v;
@@ -2853,6 +2869,13 @@ $('hookBtn').onclick = async () => {
   const r = await fetch('/api/claude/hook', { method: remove ? 'DELETE' : 'POST' });
   const j = await r.json().catch(() => ({}));
   r.ok ? toast(remove ? 'Hook removed' : 'Hook installed — new Claude Code sessions pick it up') : toast(j.error || 'Could not change the hook', true);
+  loadInfo();
+};
+$('antigravityHookBtn').onclick = async () => {
+  const remove = !!$('antigravityHookBtn').dataset.installed;
+  const r = await fetch('/api/antigravity/hook', { method: remove ? 'DELETE' : 'POST' });
+  const j = await r.json().catch(() => ({}));
+  r.ok ? toast(remove ? 'Hook removed' : 'Hook installed — Antigravity sessions pick it up') : toast(j.error || 'Could not change the hook', true);
   loadInfo();
 };
 $('modalClose').onclick = closeModal;
