@@ -50,6 +50,48 @@ public static class AgentPromptSender
     [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, nint lParam);
     private delegate bool EnumWindowsProc(nint hWnd, nint lParam);
 
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool OpenClipboard(nint hWnd);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool CloseClipboard();
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool EmptyClipboard();
+    [DllImport("user32.dll", SetLastError = true)] private static extern nint SetClipboardData(uint uFormat, nint hMem);
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern nint GlobalAlloc(uint uFlags, nuint dwBytes);
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern nint GlobalLock(nint hMem);
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool GlobalUnlock(nint hMem);
+
+    private static bool SetClipboardText(string text)
+    {
+        const uint CF_UNICODETEXT = 13;
+        const uint GMEM_MOVEABLE = 0x0002;
+
+        for (int i = 0; i < 5; i++)
+        {
+            if (OpenClipboard(0))
+            {
+                try
+                {
+                    EmptyClipboard();
+                    var bytes = Encoding.Unicode.GetBytes(text + "\0");
+                    var hMem = GlobalAlloc(GMEM_MOVEABLE, (nuint)bytes.Length);
+                    if (hMem == 0) return false;
+
+                    var pMem = GlobalLock(hMem);
+                    if (pMem == 0) return false;
+
+                    Marshal.Copy(bytes, 0, pMem, bytes.Length);
+                    GlobalUnlock(hMem);
+
+                    return SetClipboardData(CF_UNICODETEXT, hMem) != 0;
+                }
+                finally
+                {
+                    CloseClipboard();
+                }
+            }
+            Thread.Sleep(20);
+        }
+        return false;
+    }
+
     private const int SW_RESTORE = 9;
 
     private static nint FindTargetWindow(string? target)
@@ -114,23 +156,32 @@ public static class AgentPromptSender
                 KeySender.NudgeInput();
                 ShowWindow(hwnd, SW_RESTORE);
                 SetForegroundWindow(hwnd);
-                await Task.Delay(100, ct);
+                await Task.Delay(150, ct);
 
                 // Focus chat input in Antigravity IDE (Ctrl+L)
                 KeySender.SendCombo(["ctrl", "l"]);
-                await Task.Delay(80, ct);
+                // Give Electron / Monaco sufficient time to render and focus the chat input
+                await Task.Delay(350, ct);
             }
             else
             {
-                // If specific Antigravity window was not identified, type into foreground window
                 KeySender.NudgeInput();
+                await Task.Delay(100, ct);
             }
 
-            // Type the prompt text
-            if (!KeySender.TryTypeText(prompt, ct))
-                return (false, "Could not type prompt into target window");
-
-            await Task.Delay(60, ct);
+            // Paste prompt text via Clipboard (instant, handles Russian/Unicode, doesn't get dropped by Monaco)
+            if (SetClipboardText(prompt))
+            {
+                KeySender.SendCombo(["ctrl", "v"]);
+                await Task.Delay(150, ct);
+            }
+            else
+            {
+                // Fallback to keystroke-by-keystroke typing
+                if (!KeySender.TryTypeText(prompt, ct))
+                    return (false, "Could not type prompt into target window");
+                await Task.Delay(100, ct);
+            }
 
             // Send Enter to submit the prompt to the agent
             if (!KeySender.SendCombo(["enter"]))
