@@ -71,15 +71,30 @@ public static class AgentPromptSender
                 var len = GetWindowTextW(hwnd, sb, sb.Capacity);
                 var title = len > 0 ? sb.ToString() : "";
 
-                if (pName.Contains(targetPattern, StringComparison.OrdinalIgnoreCase) ||
-                    title.Contains(targetPattern, StringComparison.OrdinalIgnoreCase))
+                // Skip background managers or IME windows
+                if (pName.Equals("AntigravityManager", StringComparison.OrdinalIgnoreCase) ||
+                    title.Equals("Antigravity Manager", StringComparison.OrdinalIgnoreCase) ||
+                    title.Equals("Default IME", StringComparison.OrdinalIgnoreCase) ||
+                    title.Length == 0)
                 {
-                    // Avoid hidden utility windows or background workers with no title
-                    if (title.Length > 0 && !title.Equals("Default IME", StringComparison.OrdinalIgnoreCase))
+                    return true;
+                }
+
+                // If looking for Antigravity, prefer "Antigravity IDE"
+                if (targetPattern.Equals("Antigravity", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (pName.Contains("Antigravity IDE", StringComparison.OrdinalIgnoreCase) ||
+                        title.Contains("Antigravity IDE", StringComparison.OrdinalIgnoreCase))
                     {
                         found = hwnd;
-                        return false; // Stop enumeration
+                        return false; // Found exact IDE window
                     }
+                }
+                else if (pName.Contains(targetPattern, StringComparison.OrdinalIgnoreCase) ||
+                         title.Contains(targetPattern, StringComparison.OrdinalIgnoreCase))
+                {
+                    found = hwnd;
+                    return false;
                 }
             }
             catch { }
