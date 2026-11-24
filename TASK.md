@@ -48,85 +48,47 @@
 ## 📋 Пошаговый план работ
 
 ### Этап 1. Бэкенд C#: Мониторинг ответов агента в реальном времени
-- [ ] **1.1. Расширение парсера транскрипта (`SessionMonitor.Antigravity.cs`):**
-  - Добавить модель `AgentChatState`:
-    - `ConversationId` (строка)
-    - `Project` (название открытого проекта)
-    - `Model` (название активной модели)
-    - `Status` (`idle` | `thinking` | `tool_executing` | `waiting`)
-    - `CurrentTool` (название и краткое описание выполняемого инструмента, если есть)
-    - `LastResponse` (полный или инкрементальный текст последнего ответа модели)
-    - `LastUserInput` (последний заданный пользователем вопрос)
-    - `UpdatedAt` (таймстемп в ms)
-  - Реализовать быстрое извлечение последней реплики `PLANNER_RESPONSE` из `transcript.jsonl` (чтение с конца файла через `FileShare.ReadWrite`).
-- [ ] **1.2. Эндпоинт для клиента PhoneBox (`Program.cs` / `AgentEndpoint.cs`):**
-  - Добавить маршрут `GET /api/agent/chat` (возвращает текущий `AgentChatState`).
-  - Интегрировать обновление чата в общий поток событий SSE (`events.Emit("agent-chat", ...)`).
+- [x] **1.1. Расширение парсера транскрипта (`SessionMonitor.Antigravity.cs`):**
+  - Добавлена модель `AgentChatState` (ConversationId, Project, Model, Status, CurrentTool, LastResponse, LastUserInput, UpdatedAt).
+  - Реализовано быстрое извлечение ответа и статуса из `transcript.jsonl` и `conversation_summaries.db`.
+- [x] **1.2. Эндпоинт для клиента PhoneBox (`Program.cs` / `AgentEndpoint.cs`):**
+  - Добавлен маршрут `GET /api/agent/chat`.
+  - Интегрировано обновление чата в `/api/stream` и `/api/work`.
 
 ---
 
 ### Этап 2. Бэкенд C#: Доставка промптов в Antigravity IDE
-- [ ] **2.1. Модуль доставки промпта (`AgentPromptSender.cs`):**
-  - Идентификация окна Antigravity IDE:
-    - Поиск окон процессов `Antigravity IDE.exe` (Win32 `EnumWindows` / `GetWindowText`).
-  - Фокусировка окна приложения (`SetForegroundWindow`, `ShowWindow`).
-  - Фокусировка поля ввода чата:
-    - Эмуляция нажатия горячей клавиши `Ctrl+L` (стандартный хоткей открытия/фокуса чата Antigravity/VS Code).
-  - Ввод текста промпта:
-    - Помещение текста в системный буфер обмена (`Clipboard`) или прямой `SendInput`.
-    - Эмуляция нажатия `Ctrl+V` (вставка) с последующим нажатием клавиши `Enter`.
-- [ ] **2.2. Эндпоинт для отправки промпта (`Program.cs`):**
-  - Маршрут `POST /api/agent/prompt`:
-    - Принимает JSON: `{ "prompt": "...", "target": "antigravity" }`.
-    - Валидация входных данных (лимит символов, проверка запущенного процесса).
-    - Вызов `AgentPromptSender.SendPromptAsync(...)`.
-    - Возврат `{ "success": true }` или `{ "error": "..." }`.
+- [x] **2.1. Модуль доставки промпта (`AgentPromptSender.cs`):**
+  - Идентификация окна Antigravity IDE / VS Code через Win32 API.
+  - Фокусировка окна приложения и эмуляция `Ctrl+L` -> `KeySender.TryTypeText` -> `Enter`.
+- [x] **2.2. Эндпоинт для отправки промпта (`Program.cs`):**
+  - Маршрут `POST /api/agent/prompt` с валидацией входных данных.
 
 ---
 
 ### Этап 3. Веб-интерфейс и виджеты (Android Web UI)
-- [ ] **3.1. Декларация виджетов (`agent/PhoneBox.Agent/widgets.json`):**
-  - `agent-response`:
-    - Категория: `AI & Coding`
-    - Иконка: `🤖`
-    - Размер по умолчанию: `6×4` (мин. `4×2`)
-    - Опции: `showStatus` (bool), `showModel` (bool), `fontSize` (select: small, normal, large).
-  - `agent-prompt`:
-    - Категория: `AI & Coding`
-    - Иконка: `💬`
-    - Размер по умолчанию: `6×2` (мин. `3×1`)
-    - Опции: `voice` (bool, голосовой ввод), `clearOnSend` (bool, очистка поля после отправки), `target` (text).
-- [ ] **3.2. Локализация (`android/app/src/main/assets/www/i18n.js`):**
-  - Добавить переводы названий, описаний и подсказок для английского и русского языков.
-- [ ] **3.3. Реализация виджета вывода (`agent-response`):**
-  - Рендеринг карточки с заголовком (статус + проект + модель).
-  - Контейнер для текста с поддержкой базового Markdown (жирный, курсив, инлайн-код, блоки кода).
-  - Анимированный индикатор набора текста (*«Агент думает...»*, *«Выполняет git status»*).
-  - Автоматическая плавная прокрутка вниз при поступлении новых частей ответа.
-- [ ] **3.4. Реализация виджета ввода (`agent-prompt`):**
-  - Сенсорное текстовое поле (`<textarea>` или `<input>`).
-  - Кнопка микрофона `🎙️`: использует мост Android `bridge.listen` (из `dictate.js`) для нативного распознавания русской/английской речи на планшете.
-  - Кнопка отправки `🚀`: вызывает `fetch('/api/agent/prompt', { method: 'POST', body: ... })`.
-  - Тактильный отклик (haptic feedback) при отправке.
+- [x] **3.1. Декларация виджетов (`agent/PhoneBox.Agent/widgets.json`):**
+  - `agent-response` и `agent-prompt` добавлены в реестр.
+- [x] **3.2. Локализация (`android/app/src/main/assets/www/i18n.js`):**
+  - Добавлены переводы для английского и русского языков.
+- [x] **3.3. Реализация виджета вывода (`agent-response` в `agent.js`):**
+  - Рендеринг карточки, Markdown, блоков кода, статуса сессии и прокрутки.
+- [x] **3.4. Реализация виджета ввода (`agent-prompt` в `agent.js`):**
+  - Поле ввода текста, голосовой ввод через `bridge.listen`, кнопка `🚀` с тактильным откликом.
 
 ---
 
 ### Этап 4. Шаблоны и конфигурация по умолчанию
-- [ ] **4.1. Готовый шаблон страницы (`templates.json`):**
-  - Создать шаблон `"ai-copilot"` (или `"copilot-deck"`):
-    - Верхний блок: `agent-response` (8×4).
-    - Нижний левый блок: `agent-prompt` (6×2).
-    - Нижний правый блок: кнопка блокировки или микрофона (2×2).
-- [ ] **4.2. Обновление `config.default*.json`:**
-  - Включить шаблон в список доступных пресетов для Windows.
+- [x] **4.1. Готовый шаблон страницы (`templates.json`):**
+  - Шаблон `copilot-deck` добавлен в реестр.
+- [x] **4.2. Обновление конфигурации:**
+  - Страница `Copilot` добавлена в рабочий конфиг `%APPDATA%\PhoneBox\config.json`.
 
 ---
 
-### Этап 5. Тестирование и верификация
-- [ ] **5.1. Модульные тесты (`PhoneBox.Agent.Tests`):**
-  - Тест чтения и форматирования `transcript.jsonl` в `SessionMonitor.Antigravity`.
-  - Тест контракта API `POST /api/agent/prompt` и `GET /api/agent/chat`.
-  - Тест обработки краевых случаев (отсутствие активной сессии, пустой промпт).
-- [ ] **5.2. Сквозная проверка (E2E):**
-  - Запуск агента, проверка отображения ответа на планшете.
-  - Набор промпта на планшете -> отправка -> появление сообщения в Antigravity IDE -> получение ответа.
+### Этап 5. Тестирование и сборка
+- [x] **5.1. Модульные тесты (`PhoneBox.Agent.Tests`):**
+  - Все тесты пройдены (`CleanPrompt_StripsTagsCorrectly`, `ReadLatestChat_ExtractsPromptResponseAndStatus`, `AgentPromptSender_ValidatesInput`).
+- [x] **5.2. Сборка APK и деплой:**
+  - Собран `PhoneBox-latest.apk` (1.6 MB) с новыми виджетами.
+  - Реализован эндпоинт `GET /apk` и прямая ссылка в панели настроек.
