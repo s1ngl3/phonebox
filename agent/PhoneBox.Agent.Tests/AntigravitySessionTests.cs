@@ -210,4 +210,11 @@ public sealed class AntigravitySessionTests : IDisposable
         Assert.False(s2);
         Assert.Contains("too long", err2);
     }
+
+    [Fact]
+    public void AgentEndpoints_AreAllowedOverLan()
+    {
+        Assert.True(Lan.AllowedOverLan(new Microsoft.AspNetCore.Http.PathString("/api/agent/chat")));
+        Assert.True(Lan.AllowedOverLan(new Microsoft.AspNetCore.Http.PathString("/api/agent/prompt")));
+    }
 }

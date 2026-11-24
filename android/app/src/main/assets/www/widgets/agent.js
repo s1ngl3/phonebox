@@ -1,4 +1,4 @@
-import { API, D, PANEL_HEADERS, bridge, h, haptic, icon, t, toast } from '../main.js';
+import { API, D, PANEL_HEADERS, api, bridge, h, haptic, icon, t, toast } from '../main.js';
 import { W } from '../registry.js';
 
 // ---------------------------------------------------------------- agent widgets (Option B)
@@ -166,16 +166,8 @@ W['agent-prompt'] = {
       sendBtn.textContent = '⏳';
 
       try {
-        const res = await fetch(`${API}/agent/prompt`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...PANEL_HEADERS },
-          body: JSON.stringify({ prompt: text, target: o.target || 'Antigravity' })
-        });
-
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || `HTTP ${res.status}`);
-        }
+        const query = `prompt=${encodeURIComponent(text)}&target=${encodeURIComponent(o.target || 'Antigravity')}`;
+        await api('/agent/prompt?' + query, 'POST', 8000);
 
         sendBtn.textContent = '✓';
         sendBtn.classList.add('sent');

@@ -715,21 +715,26 @@ app.MapDelete("/api/antigravity/hook", (ConfigStore cfg) => AntigravityHook.Conf
 app.MapGet("/api/agent/chat", (SessionMonitor s) => Results.Json(s.ReadLatestChat()));
 app.MapPost("/api/agent/prompt", async (HttpRequest req, CancellationToken ct) =>
 {
-    string? prompt = null;
-    string? target = null;
-    try
+    string? prompt = req.Query["prompt"].ToString();
+    string? target = req.Query["target"].ToString();
+
+    if (string.IsNullOrWhiteSpace(prompt) && req.ContentLength is > 0)
     {
-        using var doc = await JsonDocument.ParseAsync(req.Body, cancellationToken: ct);
-        if (doc.RootElement.TryGetProperty("prompt", out var pProp) && pProp.ValueKind == JsonValueKind.String)
-            prompt = pProp.GetString();
-        if (doc.RootElement.TryGetProperty("target", out var tProp) && tProp.ValueKind == JsonValueKind.String)
-            target = tProp.GetString();
+        try
+        {
+            using var doc = await JsonDocument.ParseAsync(req.Body, cancellationToken: ct);
+            if (doc.RootElement.TryGetProperty("prompt", out var pProp) && pProp.ValueKind == JsonValueKind.String)
+                prompt = pProp.GetString();
+            if (doc.RootElement.TryGetProperty("target", out var tProp) && tProp.ValueKind == JsonValueKind.String)
+                target = tProp.GetString();
+        }
+        catch (JsonException) { return Results.BadRequest(new { error = "Invalid JSON" }); }
     }
-    catch (JsonException) { return Results.BadRequest(new { error = "Invalid JSON" }); }
 
     if (string.IsNullOrWhiteSpace(prompt))
         return Results.BadRequest(new { error = "Prompt is required" });
 
+    app.Logger.LogInformation("Agent prompt received for {Target}: {Prompt}", target ?? "Antigravity", prompt);
     var (success, error) = await AgentPromptSender.SendPromptAsync(prompt, target, ct);
     return success ? Results.Ok(new { success = true }) : Results.BadRequest(new { error });
 });
