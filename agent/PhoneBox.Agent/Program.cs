@@ -251,7 +251,7 @@ app.MapPost("/api/pair/start", (ConfigStore cfg, PairingCodes codes) =>
     var hosts = Lan.Addresses();
     var fingerprint = Lan.Fingerprint(lanCert);
     var link = PairingCodes.Link(Environment.MachineName, fingerprint, lanCfg.Port, hosts, code);
-    var apk = $"https://github.com/ersinkoc/phonebox/releases/download/v{AppPaths.Version}/PhoneBox-{AppPaths.Version}.apk";
+    var apk = $"https://github.com/s1ngl3/phonebox/releases/download/v{AppPaths.Version}/PhoneBox-{AppPaths.Version}.apk";
     return Results.Json(new
     {
         enabled = true,
@@ -638,7 +638,7 @@ app.MapGet("/api/stream", async (HttpContext ctx, PushStore push, SessionMonitor
                 await Send("state", State(ctx.RequestServices, null));
                 if (tick++ % 2 == 0)
                 {
-                    var work = new { sessions = sessions.Snapshot(), github = gh.Snapshot() };
+                    var work = new { sessions = sessions.Snapshot(), github = gh.Snapshot(), agentChat = sessions.ReadLatestChat() };
                     var json = JsonSerializer.Serialize(work, opts);
                     if (json != lastWork) { lastWork = json; await Send("work", work); }
                 }
@@ -693,6 +693,29 @@ app.MapPost(AntigravityHook.Endpoint, async (HttpRequest req, ConfigStore cfg, A
 app.MapGet("/api/antigravity/hook", () => Results.Json(new { installed = AntigravityHook.Installed(), path = AntigravityHook.HooksPath }));
 app.MapPost("/api/antigravity/hook", (ConfigStore cfg) => AntigravityHook.Configure(true, Port, cfg.Get().Antigravity.TimeoutSec, cfg.Get().Antigravity.Matcher) is { } err ? Results.BadRequest(new { error = err }) : Results.Ok());
 app.MapDelete("/api/antigravity/hook", (ConfigStore cfg) => AntigravityHook.Configure(false, Port, cfg.Get().Antigravity.TimeoutSec) is { } err ? Results.BadRequest(new { error = err }) : Results.Ok());
+
+// Agent chat feed and prompt dispatch
+app.MapGet("/api/agent/chat", (SessionMonitor s) => Results.Json(s.ReadLatestChat()));
+app.MapPost("/api/agent/prompt", async (HttpRequest req, CancellationToken ct) =>
+{
+    string? prompt = null;
+    string? target = null;
+    try
+    {
+        using var doc = await JsonDocument.ParseAsync(req.Body, cancellationToken: ct);
+        if (doc.RootElement.TryGetProperty("prompt", out var pProp) && pProp.ValueKind == JsonValueKind.String)
+            prompt = pProp.GetString();
+        if (doc.RootElement.TryGetProperty("target", out var tProp) && tProp.ValueKind == JsonValueKind.String)
+            target = tProp.GetString();
+    }
+    catch (JsonException) { return Results.BadRequest(new { error = "Invalid JSON" }); }
+
+    if (string.IsNullOrWhiteSpace(prompt))
+        return Results.BadRequest(new { error = "Prompt is required" });
+
+    var (success, error) = await AgentPromptSender.SendPromptAsync(prompt, target, ct);
+    return success ? Results.Ok(new { success = true }) : Results.BadRequest(new { error });
+});
 
 // Permission prompts waiting for the phone (posted by the Claude Code hook, see ClaudeHook.cs).
 app.MapGet("/api/approvals", (ApprovalStore a) => Results.Json(new { items = a.Snapshot() }));
@@ -771,6 +794,7 @@ app.MapGet("/api/work", (SessionMonitor s, GitHubMonitor gh) => Results.Json(new
 {
     sessions = s.Snapshot(),
     github = gh.Snapshot(),
+    agentChat = s.ReadLatestChat(),
 }));
 
 app.MapGet("/api/proxy", (string? url, CancellationToken ct) => WidgetFeedProxy.FetchAsync(url, ct));

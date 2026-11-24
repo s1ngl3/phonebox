@@ -12,6 +12,20 @@ public sealed partial class SessionMonitor
         public static readonly TranscriptInfo Empty = new("Gemini 3.8 Flash (High)", 0, 0, 0, null, 0);
     }
 
+    public sealed record AgentChat(
+        string ConversationId,
+        string Project,
+        string Model,
+        string Status,
+        string? CurrentTool,
+        string? LastResponse,
+        string? LastPrompt,
+        long UpdatedAt
+    )
+    {
+        public static readonly AgentChat Empty = new("", "Antigravity", "Gemini 3.8 Flash", "idle", null, null, null, 0);
+    }
+
     /// <summary>
     /// Reads recent and active Antigravity coding sessions from ~/.gemini/antigravity.
     /// Fully native: reads conversation summaries, presence locks, and transcript streaming events.
@@ -122,6 +136,7 @@ public sealed partial class SessionMonitor
 
     private static bool IsSessionLocked(string path)
     {
+        if (!File.Exists(path)) return false;
         try
         {
             using var fs = File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
@@ -259,5 +274,154 @@ public sealed partial class SessionMonitor
             return CultureInfo.InvariantCulture.TextInfo.ToTitleCase(raw.Replace("-", " "));
         }
         return raw;
+    }
+
+    /// <summary>
+    /// Reads the latest prompt and response from the active or most recent Antigravity conversation.
+    /// Used by the agent-response and agent-prompt widgets on the phone.
+    /// </summary>
+    public AgentChat ReadLatestChat(string? antigravityDir = null)
+    {
+        var baseDir = antigravityDir ?? Path.Combine(Home, ".gemini", "antigravity");
+        if (!Directory.Exists(baseDir)) return AgentChat.Empty;
+
+        var dbPath = Path.Combine(baseDir, "conversation_summaries.db");
+        if (!File.Exists(dbPath)) return AgentChat.Empty;
+
+        string convId = "";
+        string? title = null;
+        string? uris = null;
+        string? statusStr = null;
+        long lastModMs = 0;
+
+        try
+        {
+            using var conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly;Cache=Shared");
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT conversation_id, title, workspace_uris, status, last_modified_time FROM conversation_summaries ORDER BY last_modified_time DESC LIMIT 1";
+            using var reader = cmd.ExecuteReader();
+            if (reader.Read())
+            {
+                convId = reader.IsDBNull(0) ? "" : reader.GetString(0);
+                title = reader.IsDBNull(1) ? null : reader.GetString(1);
+                uris = reader.IsDBNull(2) ? null : reader.GetString(2);
+                statusStr = reader.IsDBNull(3) ? null : reader.GetString(3);
+                if (!reader.IsDBNull(4) && DateTimeOffset.TryParse(reader.GetString(4), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var dto))
+                    lastModMs = dto.ToUnixTimeMilliseconds();
+            }
+        }
+        catch (Exception ex)
+        {
+            log.LogDebug("Failed reading antigravity summaries for chat: {Msg}", ex.Message);
+            return AgentChat.Empty;
+        }
+
+        if (string.IsNullOrEmpty(convId)) return AgentChat.Empty;
+
+        var presenceDir = Path.Combine(baseDir, "presence");
+        var lockFile = Path.Combine(presenceDir, $"{convId}.lock");
+        bool isRunning = IsSessionLocked(lockFile) || string.Equals(statusStr, "CASCADE_RUN_STATUS_RUNNING", StringComparison.OrdinalIgnoreCase);
+
+        var cwd = DecodeWorkspace(uris);
+        var projectName = Path.GetFileName(cwd.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (string.IsNullOrEmpty(projectName)) projectName = !string.IsNullOrEmpty(title) ? title : "Antigravity";
+
+        var brainDir = Path.Combine(baseDir, "brain");
+        var transcriptPath = Path.Combine(brainDir, convId, ".system_generated", "logs", "transcript.jsonl");
+        if (!File.Exists(transcriptPath))
+            return new AgentChat(convId, projectName, "Gemini", isRunning ? "busy" : "waiting", null, null, null, lastModMs);
+
+        try
+        {
+            using var fs = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            const int maxBytes = 2 * 1024 * 1024;
+            long offset = Math.Max(0, fs.Length - maxBytes);
+            fs.Seek(offset, SeekOrigin.Begin);
+            using var reader = new StreamReader(fs, Encoding.UTF8);
+            var content = reader.ReadToEnd();
+            var lines = content.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+
+            string model = "Gemini 3.8 Flash (High)";
+            string? lastResponse = null;
+            string? lastPrompt = null;
+            string? currentTool = null;
+            long lastCreatedAt = 0;
+
+            for (int i = lines.Length - 1; i >= 0; i--)
+            {
+                var line = lines[i];
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                try
+                {
+                    using var doc = JsonDocument.Parse(line);
+                    var root = doc.RootElement;
+                    if (lastCreatedAt == 0 && root.TryGetProperty("created_at", out var ca) && ca.ValueKind == JsonValueKind.String)
+                    {
+                        if (DateTimeOffset.TryParse(ca.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var dto))
+                            lastCreatedAt = dto.ToUnixTimeMilliseconds();
+                    }
+                    if (root.TryGetProperty("model", out var m) && m.ValueKind == JsonValueKind.String)
+                    {
+                        model = FormatModelName(m.GetString());
+                    }
+                    if (lastResponse == null && root.TryGetProperty("source", out var src) && src.GetString() == "MODEL" &&
+                        root.TryGetProperty("type", out var typ) && typ.GetString() == "PLANNER_RESPONSE" &&
+                        root.TryGetProperty("content", out var cProp) && cProp.ValueKind == JsonValueKind.String)
+                    {
+                        var text = cProp.GetString();
+                        if (!string.IsNullOrWhiteSpace(text))
+                            lastResponse = text;
+                    }
+                    if (lastPrompt == null && root.TryGetProperty("source", out var uSrc) && uSrc.GetString() == "USER_EXPLICIT" &&
+                        root.TryGetProperty("type", out var uTyp) && uTyp.GetString() == "USER_INPUT" &&
+                        root.TryGetProperty("content", out var uProp) && uProp.ValueKind == JsonValueKind.String)
+                    {
+                        var rawPrompt = uProp.GetString() ?? "";
+                        lastPrompt = CleanPrompt(rawPrompt);
+                    }
+                    if (currentTool == null && root.TryGetProperty("tool_calls", out var tc) && tc.ValueKind == JsonValueKind.Array && tc.GetArrayLength() > 0)
+                    {
+                        var lastCall = tc[tc.GetArrayLength() - 1];
+                        var toolName = lastCall.TryGetProperty("name", out var tn) ? tn.GetString() ?? "tool" : "tool";
+                        if (lastCall.TryGetProperty("args", out var args) && args.ValueKind == JsonValueKind.Object &&
+                            args.TryGetProperty("toolSummary", out var ts) && ts.ValueKind == JsonValueKind.String)
+                        {
+                            var summary = ts.GetString()?.Trim('"', '\'');
+                            currentTool = !string.IsNullOrEmpty(summary) ? $"{toolName}: {summary}" : toolName;
+                        }
+                        else currentTool = toolName;
+                    }
+
+                    if (lastResponse != null && lastPrompt != null && currentTool != null) break;
+                }
+                catch { }
+            }
+
+            var status = isRunning ? "busy" : "waiting";
+            var updatedAt = lastCreatedAt > 0 ? lastCreatedAt : lastModMs;
+            if (updatedAt <= 0) updatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+            return new AgentChat(convId, projectName, model, status, currentTool, lastResponse, lastPrompt, updatedAt);
+        }
+        catch (Exception ex)
+        {
+            log.LogDebug("Failed reading transcript for chat: {Msg}", ex.Message);
+            return new AgentChat(convId, projectName, "Gemini", isRunning ? "busy" : "waiting", null, null, null, lastModMs);
+        }
+    }
+
+    internal static string CleanPrompt(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return "";
+        var startTag = "<USER_REQUEST>";
+        var endTag = "</USER_REQUEST>";
+        var startIdx = raw.IndexOf(startTag, StringComparison.OrdinalIgnoreCase);
+        var endIdx = raw.IndexOf(endTag, StringComparison.OrdinalIgnoreCase);
+        if (startIdx >= 0 && endIdx > startIdx)
+        {
+            return raw.Substring(startIdx + startTag.Length, endIdx - startIdx - startTag.Length).Trim();
+        }
+        return raw.Trim();
     }
 }

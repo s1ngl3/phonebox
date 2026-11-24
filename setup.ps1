@@ -48,7 +48,7 @@ param(
     [switch]$AllowAdministrator
 )
 
-$Repo = 'ersinkoc/phonebox'
+$Repo = 's1ngl3/phonebox'
 $Package = 'net.oxog.phonebox.deskpanel'
 $SettingsUrl = 'http://127.0.0.1:8765'
 

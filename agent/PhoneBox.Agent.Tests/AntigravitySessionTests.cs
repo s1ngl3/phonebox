@@ -131,4 +131,83 @@ public sealed class AntigravitySessionTests : IDisposable
         Assert.Equal(2300, session.TotalTokens);
         Assert.Equal("edit_file: Update SessionMonitor", session.LastTool);
     }
+
+    [Fact]
+    public void CleanPrompt_StripsTagsCorrectly()
+    {
+        Assert.Equal("Привет, агент!", SessionMonitor.CleanPrompt("<USER_REQUEST>\nПривет, агент!\n</USER_REQUEST>"));
+        Assert.Equal("Без тегов", SessionMonitor.CleanPrompt("Без тегов"));
+        Assert.Equal("", SessionMonitor.CleanPrompt("   "));
+        Assert.Equal("", SessionMonitor.CleanPrompt(null!));
+    }
+
+    [Fact]
+    public void ReadLatestChat_ExtractsPromptResponseAndStatus()
+    {
+        var dbPath = Path.Combine(_root, "conversation_summaries.db");
+        using (var conn = new SqliteConnection($"Data Source={dbPath}"))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+                CREATE TABLE IF NOT EXISTS conversation_summaries (
+                    conversation_id TEXT PRIMARY KEY,
+                    title TEXT,
+                    workspace_uris TEXT,
+                    status TEXT,
+                    last_modified_time TEXT
+                );
+                INSERT OR REPLACE INTO conversation_summaries VALUES (
+                    'chat-conv-123',
+                    'Chat Project',
+                    '[""file:///d%3A/ChatApp""]',
+                    'CASCADE_RUN_STATUS_WAITING',
+                    '2026-11-20 15:00:00.0000000+00:00'
+                );";
+            cmd.ExecuteNonQuery();
+        }
+
+        var brainDir = Path.Combine(_root, "brain");
+        var logsDir = Path.Combine(brainDir, "chat-conv-123", ".system_generated", "logs");
+        Directory.CreateDirectory(logsDir);
+        File.WriteAllLines(Path.Combine(logsDir, "transcript.jsonl"), new[]
+        {
+            JsonSerializer.Serialize(new
+            {
+                source = "USER_EXPLICIT",
+                type = "USER_INPUT",
+                content = "<USER_REQUEST>\nСделай новую фичу\n</USER_REQUEST>",
+                created_at = "2026-11-20T15:01:00Z"
+            }),
+            JsonSerializer.Serialize(new
+            {
+                source = "MODEL",
+                type = "PLANNER_RESPONSE",
+                content = "Конечно, фича готова!\n\n- Пункт 1\n- Пункт 2",
+                model = "gemini-3.8-flash-high",
+                created_at = "2026-11-20T15:02:00Z"
+            })
+        });
+
+        var chat = _monitor.ReadLatestChat(_root);
+        Assert.Equal("chat-conv-123", chat.ConversationId);
+        Assert.Equal("ChatApp", chat.Project);
+        Assert.Equal("Gemini 3.8 Flash (High)", chat.Model);
+        Assert.Equal("waiting", chat.Status);
+        Assert.Equal("Сделай новую фичу", chat.LastPrompt);
+        Assert.Equal("Конечно, фича готова!\n\n- Пункт 1\n- Пункт 2", chat.LastResponse);
+    }
+
+    [Fact]
+    public async Task AgentPromptSender_ValidatesInput()
+    {
+        var (s1, err1) = await AgentPromptSender.SendPromptAsync("");
+        Assert.False(s1);
+        Assert.Equal("Prompt is empty", err1);
+
+        var longPrompt = new string('A', 5000);
+        var (s2, err2) = await AgentPromptSender.SendPromptAsync(longPrompt);
+        Assert.False(s2);
+        Assert.Contains("too long", err2);
+    }
 }
