@@ -146,10 +146,46 @@ public static class AgentPromptSender
         return found;
     }
 
+    private static void EnsureAntigravityKeybinding()
+    {
+        try
+        {
+            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var keybindingsPath = Path.Combine(appData, "Antigravity IDE", "User", "keybindings.json");
+            var dir = Path.GetDirectoryName(keybindingsPath);
+            if (string.IsNullOrEmpty(dir)) return;
+
+            Directory.CreateDirectory(dir);
+
+            if (!File.Exists(keybindingsPath))
+            {
+                File.WriteAllText(keybindingsPath, "[\n  {\n    \"key\": \"ctrl+alt+shift+k\",\n    \"command\": \"antigravity.toggleChatFocus\",\n    \"args\": \"focus\"\n  }\n]\n");
+                return;
+            }
+
+            var text = File.ReadAllText(keybindingsPath);
+            if (text.Contains("antigravity.toggleChatFocus")) return;
+
+            var trimmed = text.Trim();
+            if (trimmed.EndsWith(']'))
+            {
+                var lastBracket = trimmed.LastIndexOf(']');
+                var before = trimmed[..lastBracket].TrimEnd();
+                var sep = before.EndsWith('{') || before.EndsWith('}') ? ",\n" : "\n";
+                var updated = before + sep + "  {\n    \"key\": \"ctrl+alt+shift+k\",\n    \"command\": \"antigravity.toggleChatFocus\",\n    \"args\": \"focus\"\n  }\n]";
+                File.WriteAllText(keybindingsPath, updated);
+            }
+        }
+        catch { }
+    }
+
     private static async Task<(bool Success, string? Error)> SendPromptWindowsAsync(string prompt, string? target, CancellationToken ct)
     {
         try
         {
+            EnsureAntigravityKeybinding();
+
+            var targetPattern = string.IsNullOrEmpty(target) ? "Antigravity" : target;
             var hwnd = FindTargetWindow(target);
             if (hwnd != 0)
             {
@@ -158,10 +194,13 @@ public static class AgentPromptSender
                 SetForegroundWindow(hwnd);
                 await Task.Delay(150, ct);
 
-                // Focus chat input in Antigravity IDE (Ctrl+L)
-                KeySender.SendCombo(["ctrl", "l"]);
-                // Give Electron / Monaco sufficient time to render and focus the chat input
-                await Task.Delay(350, ct);
+                if (targetPattern.Equals("Antigravity", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Focus chat input in Antigravity IDE without inserting file snippets or closing chat if already open
+                    KeySender.SendCombo(["ctrl", "alt", "shift", "k"]);
+                    // Give Electron / Monaco sufficient time to render and focus the chat input
+                    await Task.Delay(350, ct);
+                }
             }
             else
             {
