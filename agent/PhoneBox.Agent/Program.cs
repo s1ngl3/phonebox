@@ -338,6 +338,23 @@ app.MapGet("/panel/{*file}", (string? file, HttpRequest req) =>
 });
 app.MapGet("/favicon.ico", () => AppPaths.Resource("phonebox.ico") is { } s ? Results.Stream(s, "image/x-icon") : Results.NotFound());
 
+app.MapGet("/apk", () =>
+{
+    var candidates = new[]
+    {
+        Path.Combine(AppContext.BaseDirectory, "PhoneBox-latest.apk"),
+        Path.Combine(AppContext.BaseDirectory, "PhoneBox-0.9.19.apk"),
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PhoneBox", "PhoneBox-latest.apk"),
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PhoneBox", "app", "PhoneBox-latest.apk"),
+        @"D:\PhoneBox\PhoneBox-latest.apk",
+        @"D:\PhoneBox\dist\PhoneBox-0.9.19.apk",
+        @"D:\PhoneBox\PhoneBox-0.9.19.apk"
+    };
+    var apkPath = candidates.FirstOrDefault(File.Exists);
+    if (apkPath == null) return Results.NotFound("APK not found");
+    return Results.File(apkPath, "application/vnd.android.package-archive", "PhoneBox.apk");
+});
+
 // The version lets the settings page save only over what it loaded (X-Config-Version, see ConfigStore.Save).
 app.MapGet("/api/settings", (ConfigStore cfg, HttpResponse res) =>
 {

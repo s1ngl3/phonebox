@@ -660,6 +660,12 @@ dd { margin: 0; word-break: break-all; }
       </div>
       <div class="card">
         <h3 data-i18n="s.updates.title">Updates</h3>
+        <div class="row" style="margin-bottom:12px">
+          <a href="/apk" class="btn primary" download="PhoneBox.apk" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px">
+            <span>📥</span> <span>Скачать PhoneBox.apk на телефон</span>
+          </a>
+          <span class="hint">Свежая сборка APK с поддержкой Copilot (чат с агентом, диктовка промптов)</span>
+        </div>
         <div class="row" style="margin-bottom:8px"><label class="switch"><input type="checkbox" data-bind="updates.auto"><span></span></label> <span data-i18n="s.updates.auto">Install new releases automatically</span></div>
         <p class="hint" style="margin:0 0 12px">Checks <span id="updRepo"></span> on GitHub every 6 hours. The phone app is installed over USB without a prompt
           on the phone; the agent replaces its own files and restarts.</p>
